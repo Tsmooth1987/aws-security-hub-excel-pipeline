@@ -15,8 +15,8 @@ echo "Installing dependencies..."
 pip3 install -r requirements.txt -t build/ --upgrade
 
 # Copy Lambda function
-echo "Copying Lambda function..."
-cp lambda_function.py build/
+echo "Copying enhanced Lambda function..."
+cp lambda_function_enhanced.py build/lambda_function.py
 
 # Create ZIP file
 echo "Creating deployment package..."

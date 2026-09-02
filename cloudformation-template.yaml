@@ -1,5 +1,16 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AWS Security Hub to Excel Pipeline'
+Description: 'Enhanced AWS Security Hub to Excel Pipeline with SNS Notifications and Scheduling'
+
+Parameters:
+  EmailNotification:
+    Type: String
+    Default: ''
+    Description: 'Email address for Security Hub report notifications (leave empty to disable)'
+
+  ScheduleExpression:
+    Type: String
+    Default: 'cron(0 9 ? * MON *)'
+    Description: 'Schedule expression for automatic report generation (default: Mondays at 9 AM UTC)'
 
 Resources:
   ReportBucket:
@@ -14,6 +25,20 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasEmailNotification
+    Properties:
+      DisplayName: 'Security Hub Report Notifications'
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmailNotification
+    Properties:
+      TopicArn: !Ref SNSTopic
+      Protocol: email
+      Endpoint: !Ref EmailNotification
 
   LambdaRole:
     Type: AWS::IAM::Role
@@ -35,17 +60,27 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:PutObject
+                  - s3:GetObject
                 Resource: !Sub '${ReportBucket.Arn}/*'
               - Effect: Allow
                 Action:
                   - securityhub:GetFindings
                 Resource: '*'
+        - PolicyName: SNSPublishAccess
+          Condition: HasEmailNotification
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref SNSTopic
 
   SecurityHubLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: security-hub-excel-report
-      Handler: index.lambda_handler
+      FunctionName: security-hub-excel-report-enhanced
+      Handler: lambda_function.lambda_handler
       Role: !GetAtt LambdaRole.Arn
       Runtime: python3.11
       Timeout: 300
@@ -53,13 +88,43 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref ReportBucket
+          SNS_TOPIC_ARN: !If [HasEmailNotification, !Ref SNSTopic, '']
       Code:
-        ZipFile: |
-          def lambda_handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder'}
+        S3Bucket: !Sub '${AWS::AccountId}-lambda-deployments'
+        S3Key: 'security-hub-excel-pipeline/lambda-source.zip'
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SecurityHubLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduleRule.Arn
+
+  ScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Schedule for Security Hub report generation'
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt SecurityHubLambda.Arn
+          Id: 'SecurityHubReportTarget'
+
+Conditions:
+  HasEmailNotification: !Not [!Equals [!Ref EmailNotification, '']]
 
 Outputs:
   BucketName:
     Value: !Ref ReportBucket
+    Description: 'S3 bucket for Security Hub reports'
   FunctionName:
     Value: !Ref SecurityHubLambda
+    Description: 'Lambda function name'
+  SNSTopicArn:
+    Condition: HasEmailNotification
+    Value: !Ref SNSTopic
+    Description: 'SNS topic ARN for notifications'
+  ScheduleRuleArn:
+    Value: !GetAtt ScheduleRule.Arn
+    Description: 'CloudWatch Events rule ARN'

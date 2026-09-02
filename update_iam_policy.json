@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::security-hub-excel-pipeline-reportbucket-whrdm3umxwij/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["securityhub:GetFindings"],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["sns:Publish"],
+      "Resource": "arn:aws:sns:us-east-1:291846646255:security-hub-report-notifications"
+    }
+  ]
+}
